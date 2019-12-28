@@ -26,8 +26,8 @@ int ShellExecuteW(int hwnd,          // Хендл родительского о
 //+------------------------------------------------------------------+
 //Параметры телеграмм
 input string _________TELEGRAMM____________;
-input string token = "862725904:AAEHE7gJAR5_RVe55tl3boQcym4OX1Xw1Gk";
-input string chat_id = "-1001325015046";
+input string token = "";
+input string chat_id = "";
 input int firstNomerPost = 0; //Номер поста, с которого вести отсчет
 //---Общие параметры кнопок
 input string _________GENERAL____________;
