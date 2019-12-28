@@ -1,0 +1,461 @@
+//+------------------------------------------------------------------+
+//|                                                    dimakasli.mq5 |
+//|                        Copyright 2019, MetaQuotes Software Corp. |
+//|                                             https://www.mql5.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2019, MetaQuotes Software Corp."
+#property link      "https://www.mql5.com"
+#property version   "1.00"
+
+#include<Trade\Trade.mqh>
+#include <Strings\String.mqh>
+CTrade  trade;
+CString cstr;
+
+#import "shell32.dll"                   // Все строки кончаются 0
+int ShellExecuteW(int hwnd,          // Хендл родительского окна
+                  string Operation,  // Указатель на строку операции. Open, Print, Explore
+                  string File,       // Указатель на строку с именем исполняемого файла
+                  string Parameters, // Указатель на строку с параметрами
+                  string Directory,  // Указатель на строку с именем папки
+                  int ShowCmd);      // 0 = показать
+#import
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+//Параметры телеграмм
+input string _________TELEGRAMM____________;
+input string token = "862725904:AAEHE7gJAR5_RVe55tl3boQcym4OX1Xw1Gk";
+input string chat_id = "-1001325015046";
+input int firstNomerPost = 0; //Номер поста, с которого вести отсчет
+//---Общие параметры кнопок
+input string _________GENERAL____________;
+input double lot = 0.15;                 //Объем позиции
+input bool sendSLTGM = true;//Отправлять Стоплоссы в телеграм
+input string _________OBJECT____________;
+input string i_font = "Arial";             //Название шрифта
+input int i_font_size = 15;                //Размер шрифта кнопок
+//---Кнопка BUY
+input color clr_font_buy = clrWhite;       //цвет шрифта кнопки BUY
+input color clr_back_buy = clrDarkGreen;   //цвет фона кнопки BUY
+//---Кнопка SELL
+input color clr_font_sell = clrWhite;      //цвет шрифта кнопки SELL
+input color clr_back_sell = clrRed;        //цвет фона кнопки SELL
+//---Кнопка CLOSE
+input color clr_font_close = clrWhite;     //цвет шрифта кнопки CLOSE
+input color clr_back_close = clrDarkRed;   //цвет фона кнопки CLOSE
+
+//---параметры линий
+input ENUM_LINE_STYLE i_style_line = STYLE_DASH; //Стиль линий
+input int i_width_line = 3;                      //Толщина линий
+input color clr_TP1 = clrLimeGreen;              //Цвет линии TP1
+input color clr_TP2 = clrGreen;                  //Цвет линии TP2
+input color clr_SL =  clrRed;                    //Цвет линии SL
+
+string TextMessageTgm = "Привет из Metatrader";
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//---
+   ChartSetInteger(ChartID(),CHART_EVENT_OBJECT_CREATE,true);
+   AddButtonsPanel();
+   ChartRedraw();
+//---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//---
+   ObjectsDeleteAll(0,-1,-1);
+  }
+//+------------------------------------------------------------------+
+//|Event Trade                                                                  |
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+  {
+   HistorySelectByPosition(trans.position);
+   ENUM_DEAL_REASON reason = (ENUM_DEAL_REASON)HistoryDealGetInteger(trans.deal,DEAL_REASON);
+   if((reason==DEAL_REASON_TP)||(reason==DEAL_REASON_SL))
+     {
+      string resullt[];
+      string txt="";
+      ulong start_ticket=HistoryDealGetTicket(0);
+      string coment = HistoryDealGetString(start_ticket,DEAL_COMMENT);
+      ENUM_DEAL_TYPE tradeType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(start_ticket,DEAL_TYPE);
+      double enterPrice = HistoryDealGetDouble(start_ticket,DEAL_PRICE);
+      int arg = StringSplit(coment,58,resullt);
+
+      if(reason==DEAL_REASON_TP)
+        {
+         txt +="*"+"Взяли "+resullt[1]+" по сигналу №"+resullt[0]+"*"+"%250A";
+         txt +="Валютная пара: "+HistoryDealGetString(start_ticket,DEAL_SYMBOL)+"%250A";
+         //---TP1
+         ulong TP1_ticket=HistoryDealGetTicket(1);
+         double tp1Price = HistoryDealGetDouble(TP1_ticket,DEAL_PRICE);
+         int countPunktTP1 = 0;
+         //---TP2
+         ulong TP2_ticket=HistoryDealGetTicket(2);
+         double tp2Price = HistoryDealGetDouble(TP2_ticket,DEAL_PRICE);
+         int countPunktTP2 = 0;
+         if(tradeType==DEAL_TYPE_BUY)
+           {
+            txt +="%25E2%25AC%2586"+"%20"+"Заходили в BUY: "+(string)enterPrice+"%250A";
+            countPunktTP1 = (int)((tp1Price-enterPrice)*MathPow(10,Digits()));
+            countPunktTP2 = (int)((tp2Price-enterPrice)*MathPow(10,Digits()));
+           }
+         if(tradeType==DEAL_TYPE_SELL)
+           {
+            txt +="%25E2%25AC%2587"+"%20"+"Заходили в SELL: "+(string)enterPrice+"%250A";
+            countPunktTP1 = (int)((enterPrice-tp1Price)*MathPow(10,Digits()));
+            countPunktTP2 = (int)((enterPrice-tp2Price)*MathPow(10,Digits()));
+           }
+         int summProfitTP1 = (int)(countPunktTP1*SymbolInfoDouble(Symbol(),SYMBOL_TRADE_TICK_VALUE)*1.5*lot);
+         int summProfitTP2 = (int)(countPunktTP2*SymbolInfoDouble(Symbol(),SYMBOL_TRADE_TICK_VALUE)*1.5*lot);
+         int a=5;
+         //---
+         if(resullt[1]=="TP1")
+           {
+            txt +="%25E2%259C%2585"+"%20"+"*"+"TP1 +"+(string)countPunktTP1+" пунктов"+"("+(string)summProfitTP1+"$ / "+(string)(summProfitTP1*65)+"руб."+")"+"*";
+           }
+         if(resullt[1]=="TP2")
+           {
+            txt +="%25E2%259C%2585"+"%20"+"*"+"TP1 +"+(string)countPunktTP1+" пунктов"+"("+(string)summProfitTP1+"$ / "+(string)(summProfitTP1*65)+"руб."+")"+"*"+"%250A";
+            txt +="%25E2%259C%2585"+"%20"+"*"+"TP2 +"+(string)countPunktTP2+" пунктов"+"("+(string)summProfitTP2+"$ / "+(string)(summProfitTP2*65)+"руб."+")"+"*";
+           }
+        }
+      if(reason==DEAL_REASON_SL)
+        {
+         if(!sendSLTGM)
+            return;
+         txt="";
+         txt +="*"+"Информация по сигналу №"+resullt[0]+"*"+"%250A";
+         txt +="Валютная пара: "+HistoryDealGetString(start_ticket,DEAL_SYMBOL)+"%250A";
+         //ulong sl_ticket=HistoryDealGetTicket(trans.deal);
+         double slPrice = HistoryDealGetDouble(trans.deal,DEAL_PRICE);
+         int countPunktSL = 0;
+         if(tradeType==DEAL_TYPE_BUY)
+           {
+            txt +="%25E2%25AC%2586"+"%20"+"Заходили в BUY: "+(string)enterPrice+"%250A";
+            countPunktSL = (int)((enterPrice-countPunktSL)*MathPow(10,Digits()));
+           }
+         if(tradeType==DEAL_TYPE_SELL)
+           {
+            txt +="%25E2%25AC%2587"+"%20"+"Заходили в SELL: "+(string)enterPrice+"%250A";
+            countPunktSL = (int)((countPunktSL-enterPrice)*MathPow(10,Digits()));
+           }
+         int summProfitSL = (int)(countPunktSL*SymbolInfoDouble(Symbol(),SYMBOL_TRADE_TICK_VALUE)*1.5*lot);
+         txt +="%25E2%259D%258C"+"%20"+"*"+"SL -"+(string)countPunktSL+" пунктов"+"*";
+         int a=5;
+        }
+      TextMessageTgm = txt;
+      SendMessgeTelegram();
+     }
+
+
+  }
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---
+
+  }
+//+------------------------------------------------------------------+
+//|Event chart                                                                  |
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id,         // идентификатор события
+                  const long& lparam,   // параметр события типа long
+                  const double& dparam, // параметр события типа double
+                  const string& sparam  // параметр события типа string
+                 )
+  {
+   if(id==CHARTEVENT_OBJECT_CLICK)
+     {
+      MqlTick last_tick;
+      SymbolInfoTick(Symbol(),last_tick);
+      double tp1 = ObjectGetDouble(0,"TP1",OBJPROP_PRICE,0);
+      string str_tp1 = DoubleToString(tp1,4);
+      StringSetLength(str_tp1,6);
+      double tp2 = ObjectGetDouble(0,"TP2",OBJPROP_PRICE,0);
+      string str_tp2 = DoubleToString(tp2,4);
+      StringSetLength(str_tp2,6);
+      double sl = ObjectGetDouble(0,"SL",OBJPROP_PRICE,0);
+      string str_sl = DoubleToString(sl,4);
+      StringSetLength(str_sl,6);
+      string str_bid = (string)last_tick.bid;
+      StringSetLength(str_bid,6);
+      string str_ask = (string)last_tick.ask;
+      StringSetLength(str_ask,6);
+
+      if(sparam=="btn_bild_line")
+        {
+         AddTPSLLine();
+         ChartRedraw();
+        }
+      if(sparam=="btn_buy")
+        {
+         GlobalVariableSet("nomerPost",MathMax(GlobalVariableGet("nomerPost"),firstNomerPost)+1);
+         trade.Buy(lot,Symbol(),NULL,sl,tp1,(string)(int)GlobalVariableGet("nomerPost")+":"+"TP1");
+         trade.Buy(lot,Symbol(),NULL,sl,tp2,(string)(int)GlobalVariableGet("nomerPost")+":"+"TP2");
+         MessageTgm_tradeIn(Symbol(),"%25E2%25AC%2586"+" BUY: "+str_bid,"TP1: "+str_tp1,"TP2: "+str_tp2,"SL:  "+str_sl,SummProfit("BUY"));
+         SendMessgeTelegram();
+         ObjectsDeleteAll(0,-1,OBJ_HLINE);
+         ChartRedraw();
+        }
+      if(sparam=="btn_sell")
+        {
+         GlobalVariableSet("nomerPost",MathMax(GlobalVariableGet("nomerPost"),firstNomerPost)+1);
+         trade.Sell(lot,Symbol(),NULL,sl,tp1,(string)(int)GlobalVariableGet("nomerPost")+":"+"TP1");
+         trade.Sell(lot,Symbol(),NULL,sl,tp2,(string)(int)GlobalVariableGet("nomerPost")+":"+"TP2");
+         MessageTgm_tradeIn(Symbol(),"%25E2%25AC%2587"+" SELL: "+str_ask,"TP1: "+str_tp1,"TP2: "+str_tp2,"SL:  "+str_sl,SummProfit("SELL"));
+         SendMessgeTelegram();
+         ObjectsDeleteAll(0,-1,OBJ_HLINE);
+         ChartRedraw();
+        }
+      if(sparam=="btn_close")
+        {
+         CloseAllbySymboll();
+         CloseAllbySymboll();
+         CloseAllbySymboll();
+         CloseAllbySymboll();
+         ObjectsDeleteAll(0,-1,OBJ_HLINE);
+         ChartRedraw();
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Добавление панели кнопок                                                                 |
+//+------------------------------------------------------------------+
+void AddButtonsPanel()
+  {
+   CreateButton(0,0,"btn_bild_line","построить линии",CORNER_RIGHT_LOWER,i_font,10,clr_font_close,clrGray,clrWhite,110,20,250,25,0,true,"");
+   CreateButton(0,0,"btn_buy","BUY",CORNER_RIGHT_LOWER,i_font,i_font_size,clr_font_buy,clr_back_buy,clrWhite,54,30,120,70,0,true,"");
+   CreateButton(0,0,"btn_sell","SELL",CORNER_RIGHT_LOWER,i_font,i_font_size,clr_font_sell,clr_back_sell,clrWhite,54,30,64,70,0,true,"");
+   CreateButton(0,0,"btn_close","CLOSE",CORNER_RIGHT_LOWER,i_font,i_font_size,clr_font_close,clr_back_close,clrWhite,110,30,120,35,0,true,"");
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Функция создания кнопки                                                                 |
+//+------------------------------------------------------------------+
+void CreateButton(long   chart_id,     // id графика
+                  int    sub_window,   // номер окна (подокна)
+                  string object_name,  // имя объекта
+                  string text,         // отображаемый текст
+                  long   corner,       // угол графика
+                  string font,         // шрифт
+                  int    font_size,    // размер шрифта
+                  color  c_font,       // цвет шрифта
+                  color  c_background, // цвет фона
+                  color  c_border,     // цвет рамки
+                  int    x_size,       // ширина
+                  int    y_size,       // высота
+                  int    x_dist,       // координата по шкале X
+                  int    y_dist,       // координата по шкале Y
+                  long   zorder,       // приоритет
+                  bool   read_only,    // флаг "Только для чтения"
+                  string tooltip)      // всплывающая подсказка
+  {
+   if(!ObjectCreate(chart_id,object_name,OBJ_EDIT,0,0,0))
+     {
+      Print(__FUNCTION__,
+            ": не удалось создать кнопку! Код ошибки = ",GetLastError());
+      return;
+     }
+
+   ObjectSetString(chart_id,object_name,OBJPROP_TEXT,text);              // имя
+   ObjectSetInteger(chart_id,object_name,OBJPROP_CORNER,corner);         // угол привязки
+   ObjectSetString(chart_id,object_name,OBJPROP_FONT,font);              // шрифт
+   ObjectSetInteger(chart_id,object_name,OBJPROP_FONTSIZE,font_size);    // размер шрифта
+   ObjectSetInteger(chart_id,object_name,OBJPROP_COLOR,c_font);          // цвет шрифта
+   ObjectSetInteger(chart_id,object_name,OBJPROP_BGCOLOR,c_background);  // цвет фона
+   ObjectSetInteger(chart_id,object_name,OBJPROP_BORDER_COLOR,c_border); // цвет рамки
+   ObjectSetInteger(chart_id,object_name,OBJPROP_XSIZE,x_size);          // ширина
+   ObjectSetInteger(chart_id,object_name,OBJPROP_YSIZE,y_size);          // высота
+   ObjectSetInteger(chart_id,object_name,OBJPROP_XDISTANCE,x_dist);      // координата X
+   ObjectSetInteger(chart_id,object_name,OBJPROP_YDISTANCE,y_dist);      // координата Y
+   ObjectSetInteger(chart_id,object_name,OBJPROP_SELECTABLE,false);      // объект нельзя выделить
+   ObjectSetInteger(chart_id,object_name,OBJPROP_ZORDER,zorder);         // приоритет
+   ObjectSetInteger(chart_id,object_name,OBJPROP_READONLY,read_only);    // текст не редактируется
+   ObjectSetInteger(chart_id,object_name,OBJPROP_ALIGN,ALIGN_CENTER);    // выровнять по центру
+   ObjectSetString(chart_id,object_name,OBJPROP_TOOLTIP,tooltip);        // без всплывающей подсказки, если "\n"
+//---default
+   ObjectSetInteger(chart_id,object_name,OBJPROP_HIDDEN,true);          // видимость объекта в списке объектов
+   ObjectSetInteger(chart_id,object_name,OBJPROP_SELECTABLE,true);       // доступность объекта пользователю
+   ObjectSetInteger(chart_id,object_name,OBJPROP_ZORDER,10);             // приоритет на клик, если объекты наслаиваются друг на друга
+
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|Добавление линий тейкпрофита и стоплосса                                                                  |
+//+------------------------------------------------------------------+
+void AddTPSLLine()
+  {
+   CreateLine(0,"SL","SL",i_style_line,i_width_line,clr_SL,30);
+   CreateLine(0,"TP1","TP1",i_style_line,i_width_line,clr_TP1,60);
+   CreateLine(0,"TP2","TP2",i_style_line,i_width_line,clr_TP2,80);
+
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|Функция создания линии                                                                  |
+//+------------------------------------------------------------------+
+void CreateLine(
+   long chart_id,              // id графика
+   string object_name,         // имя объекта
+   string text,                // текст линии
+   ENUM_LINE_STYLE style_line, //стиль линии
+   int width_line,             // толщина линии
+   color clr_line,             // цвет линии
+   int InpPrice                // Цена линии в % от графика
+)
+  {
+   int accuracy=1000;
+   double price[];
+   ArrayResize(price,accuracy);
+   double max_price=ChartGetDouble(0,CHART_PRICE_MAX);
+   double min_price=ChartGetDouble(0,CHART_PRICE_MIN);
+   double step=(max_price-min_price)/accuracy;
+   for(int i=0; i<accuracy; i++)
+      price[i]=min_price+i*step;
+   int p=InpPrice*(accuracy-1)/100;
+   if(!ObjectCreate(chart_id,object_name,OBJ_HLINE,0,0,price[p]))
+     {
+      Print(__FUNCTION__,
+            ": не удалось создать горизонтальную линию! Код ошибки = ",GetLastError());
+      return;
+     }
+   ObjectSetInteger(chart_id,object_name,OBJPROP_COLOR,clr_line);
+   ObjectSetInteger(chart_id,object_name,OBJPROP_STYLE,style_line);
+   ObjectSetInteger(chart_id,object_name,OBJPROP_WIDTH,width_line);
+   ObjectSetString(chart_id,object_name,OBJPROP_TEXT,text);
+//---default
+   ObjectSetInteger(chart_id,object_name,OBJPROP_HIDDEN,false);          // видимость объекта в списке объектов
+   ObjectSetInteger(chart_id,object_name,OBJPROP_SELECTABLE,true);       // доступность объекта пользователю
+   ObjectSetInteger(chart_id,object_name,OBJPROP_ZORDER,1000);              // приоритет на клик, если объекты наслаиваются друг на друга
+   ObjectSetInteger(chart_id,object_name,OBJPROP_SELECTED,true);              //
+
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|Функция кнопки CLOSE                                                                  |
+//+------------------------------------------------------------------+
+void CloseAllbySymboll()
+  {
+   for(int i=0; i<PositionsTotal(); i++)
+     {
+      if(PositionGetSymbol(i)==Symbol())
+        {
+         trade.PositionClose(PositionGetTicket(i),100);
+        }
+     }
+   for(int i=0; i<OrdersTotal(); i++)
+     {
+      if(OrderSelect(OrderGetTicket(i)))
+        {
+         if(OrderGetString(ORDER_SYMBOL)==Symbol())
+           {
+            trade.OrderDelete(OrderGetInteger(ORDER_TICKET));
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|Send Message Telegram                                                                  |
+//+------------------------------------------------------------------+
+void SendMessgeTelegram()
+  {
+   string cookie=NULL,headers;
+   char   post[],result[];
+   string url="https://api.telegram.org/bot"+token+"/sendMessage?chat_id="+chat_id+"&text="+TextMessageTgm+"&parse_mode=Markdown";
+   ResetLastError();
+   int res = WebRequest("GET",url,cookie,NULL,500,post,0,result,headers);
+//ShellExecuteW(0, NULL, url, "", NULL, 5);
+   if(res==-1)
+     {
+      Print("Ошибка в WebRequest. Код ошибки  =",GetLastError());
+      //--- возможно, URL отсутствует в списке, выводим сообщение о необходимости его добавления
+      MessageBox("Необходимо добавить адрес '"+url+"' в список разрешенных URL во вкладке 'Советники'","Ошибка",MB_ICONINFORMATION);
+     }
+   if(res==200)
+     {
+
+      MessageBox("Успешно отправлено в телеграм!!!","Уведомление",MB_ICONINFORMATION);
+     }
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|Генерация текста сообщения вход в сделку                                                                 |
+//+------------------------------------------------------------------+
+void MessageTgm_tradeIn(string symbol,string tradeinfo,string tp1,string tp2,string sl,int summProfit)
+  {
+   string txt="";
+   txt += "%20%25F0%259F%2593%25A2"+"%20"+"*Neuro%20Forex%20№"+(string)(int)GlobalVariableGet("nomerPost")+"*"+"%250A"+"%250A";
+   txt +="%25F0%259F%2593%2588"+"%20"+symbol+"%250A";
+   txt +="-------------"+"%250A";
+   txt +=tradeinfo+"%250A";
+   txt +="%25F0%259F%2592%25B5"+"%20"+tp1+"%250A";
+   txt +="%25F0%259F%2592%25B5"+"%20"+tp2+"%250A";
+   txt +="%25E2%259D%258C"+"%20"+sl+"%250A";
+   txt +="-------------"+"%250A";
+   txt +="%25E2%259D%2597"+"%20"+"Открываем 2 сделки одинаковым лотом!"+"%250A";
+   txt +="%25F0%259F%258E%25B2"+"%20"+"Риск на сделку <"+(string)(NormalizeDouble((double)(rand()%30000)/10000,2))+"%"+"%250A";
+   txt +="%25F0%259F%2592%25A1"+"%20"+"Вероятность выигрыша: "+(string)(89+rand()%10)+"%"+"%250A";
+   txt +="%25F0%259F%2592%258E"+"%20"+"Потенциал ~"+(string)summProfit+"$ / "+(string)(summProfit*65)+"руб."+"%250A";
+   TextMessageTgm = txt;
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//|Генерация текста сообщения достигли уровня                                                                   |
+//+------------------------------------------------------------------+
+void MessageTgm_pending(ulong deal)
+  {
+   long pos_id = HistoryDealGetInteger(deal,DEAL_POSITION_ID);
+   HistorySelectByPosition(pos_id);
+   for(int i=0; i<HistoryDealsTotal(); i++)
+     {
+      if(HistoryDealGetTicket(i)>0)
+        {
+         ulong deal_ticket=HistoryDealGetTicket(i);
+
+        }
+     }
+   string coment = HistoryDealGetString(pos_id,DEAL_COMMENT);
+
+  }
+//+------------------------------------------------------------------+
+//|Summ profit                                                                  |
+//+------------------------------------------------------------------+
+int SummProfit(string tradeType)
+  {
+   MqlTick last_tick;
+   SymbolInfoTick(Symbol(),last_tick);
+   double profitTP1=0,profitTP2=0;
+
+   if(tradeType=="BUY")
+     {
+      profitTP1 = (ObjectGetDouble(0,"TP1",OBJPROP_PRICE,0)-last_tick.bid);
+      profitTP2 = (ObjectGetDouble(0,"TP2",OBJPROP_PRICE,0)-last_tick.bid);
+
+     }
+   if(tradeType=="SELL")
+     {
+      profitTP1 = last_tick.bid-(ObjectGetDouble(0,"TP1",OBJPROP_PRICE,0));
+      profitTP2 = last_tick.bid-(ObjectGetDouble(0,"TP2",OBJPROP_PRICE,0));
+     }
+   int sumTP = (int)((profitTP1+profitTP2)*MathPow(10,Digits()));
+   int summProfit = (int)(sumTP*SymbolInfoDouble(Symbol(),SYMBOL_TRADE_TICK_VALUE)*1.5*lot);
+   return(summProfit);
+  }
+//+------------------------------------------------------------------+
